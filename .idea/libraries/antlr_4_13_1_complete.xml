@@ -1,0 +1,14 @@
+<component name="libraryTable">
+  <library name="antlr-4.13.1-complete">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/pkg/antlr-4.13.1-complete.jar!/" />
+      <root url="jar://$PROJECT_DIR$/pkg/javacpp-1.5.7-linux-x86_64.jar!/" />
+      <root url="jar://$PROJECT_DIR$/pkg/javacpp-1.5.7.jar!/" />
+      <root url="jar://$PROJECT_DIR$/pkg/llvm-13.0.1-1.5.7-linux-x86_64.jar!/" />
+      <root url="jar://$PROJECT_DIR$/pkg/llvm-13.0.1-1.5.7.jar!/" />
+      <root url="jar://$PROJECT_DIR$/pkg/llvm-platform-13.0.1-1.5.7.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
