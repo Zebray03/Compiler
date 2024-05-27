@@ -22,12 +22,10 @@ public class VariableSymbol implements Symbol {
         return type;
     }
 
-    @Override
     public LLVMValueRef getPointer() {
         return pointer;
     }
 
-    @Override
     public boolean getIsVariadic() {
         return isVariadic;
     }

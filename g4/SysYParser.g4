@@ -70,6 +70,8 @@ cond : exp                  # ExpCond
      | cond (EQ | NEQ) cond # NeqCond
      | cond AND cond        # AndCond
      | cond OR cond         # OrCond
+     | TRUE                 # TrueCond
+     | FALSE                # FalseCond
      ;
 
 lVal : IDENT (L_BRACKT exp R_BRACKT)* ;

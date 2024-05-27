@@ -17,7 +17,7 @@ public class Main {
         CommonTokenStream tokens = new CommonTokenStream(sysYLexer);
         SysYParser sysYParser = new SysYParser(tokens);
         sysYParser.removeErrorListeners();
-        MyVisitor visitor = new MyVisitor();
+        IRGenerateVisitor visitor = new IRGenerateVisitor();
 
         ParseTree tree = sysYParser.program();
 

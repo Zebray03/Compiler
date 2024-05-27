@@ -4,6 +4,4 @@ import org.bytedeco.llvm.LLVM.LLVMValueRef;
 public interface Symbol {
     String getName();
     LLVMTypeRef getType();
-    LLVMValueRef getPointer();
-    boolean getIsVariadic();
 }

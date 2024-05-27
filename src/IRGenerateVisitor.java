@@ -1,27 +1,25 @@
-import org.antlr.v4.runtime.Token;
 import org.bytedeco.javacpp.Pointer;
 import org.bytedeco.javacpp.PointerPointer;
 import org.bytedeco.llvm.LLVM.*;
 
+import java.util.Stack;
+
 import static org.bytedeco.llvm.global.LLVM.*;
 
-public class MyVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
+public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
     LLVMModuleRef module;
     LLVMBuilderRef builder;
-    LLVMTypeRef i32Type;
-
     GlobalScope globalScope;
     Scope currentScope;
+    Stack<LLVMBasicBlockRef> blockStack;
 
     @Override
     public LLVMValueRef visitProgram(SysYParser.ProgramContext ctx) {
         module = LLVMModuleCreateWithName("module");
         builder = LLVMCreateBuilder();
-        i32Type = LLVMInt32Type();
-
         globalScope = new GlobalScope(null);
         this.currentScope = globalScope;
-
+        blockStack = new Stack<>();
         return super.visitProgram(ctx);
     }
 
@@ -29,18 +27,16 @@ public class MyVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
     // 对于 int 常量，它们的处理与 int 变量一致
     public LLVMValueRef visitConstDef(SysYParser.ConstDefContext ctx) {
         if (currentScope == globalScope) {
-            LLVMValueRef globalVar = LLVMAddGlobal(module, i32Type, ctx.IDENT().getText());
-            VariableSymbol globalSymbol = new VariableSymbol(ctx.IDENT().toString(), i32Type, globalVar.getPointer(), false);
+            LLVMValueRef globalVar = LLVMAddGlobal(module, LLVMInt32Type(), ctx.IDENT().getText());
+            VariableSymbol globalSymbol = new VariableSymbol(ctx.IDENT().toString(), LLVMInt32Type(), globalVar.getPointer(), false);
             currentScope.define(globalSymbol);
             LLVMSetInitializer(globalVar, visit(ctx.constInitVal()));
         } else {
-            //申请一块能存放int型的内存
-            LLVMValueRef pointer = LLVMBuildAlloca(builder, i32Type, ctx.IDENT().getText());
+            LLVMValueRef pointer = LLVMBuildAlloca(builder, LLVMInt32Type(), ctx.IDENT().getText());
 
-            VariableSymbol symbol = new VariableSymbol(ctx.IDENT().toString(), i32Type, pointer, false);
+            VariableSymbol symbol = new VariableSymbol(ctx.IDENT().toString(), LLVMInt32Type(), pointer, false);
             currentScope.define(symbol);
 
-            //将数值存入该内存
             LLVMBuildStore(builder, visit(ctx.constInitVal()), pointer);
         }
         return null;
@@ -49,20 +45,18 @@ public class MyVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
     @Override
     public LLVMValueRef visitVarDef(SysYParser.VarDefContext ctx) {
         if (currentScope == globalScope) {
-            LLVMValueRef globalVar = LLVMAddGlobal(module, i32Type, ctx.IDENT().getText());
-            VariableSymbol globalSymbol = new VariableSymbol(ctx.IDENT().toString(), i32Type, globalVar.getPointer(), true);
+            LLVMValueRef globalVar = LLVMAddGlobal(module, LLVMInt32Type(), ctx.IDENT().getText());
+            VariableSymbol globalSymbol = new VariableSymbol(ctx.IDENT().toString(), LLVMInt32Type(), globalVar.getPointer(), true);
             currentScope.define(globalSymbol);
             if (ctx.initVal() != null) {
                 LLVMSetInitializer(globalVar, visit(ctx.initVal()));
             }
         } else {
-            //申请一块能存放int型的内存
-            LLVMValueRef pointer = LLVMBuildAlloca(builder, i32Type, ctx.IDENT().getText());
+            LLVMValueRef pointer = LLVMBuildAlloca(builder, LLVMInt32Type(), ctx.IDENT().getText());
 
-            VariableSymbol symbol = new VariableSymbol(ctx.IDENT().toString(), i32Type, pointer, true);
+            VariableSymbol symbol = new VariableSymbol(ctx.IDENT().toString(), LLVMInt32Type(), pointer, true);
             currentScope.define(symbol);
             if (ctx.initVal() != null) {
-                //将数值存入该内存
                 LLVMBuildStore(builder, visit(ctx.initVal()), pointer);
             }
         }
@@ -71,10 +65,8 @@ public class MyVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
 
     @Override
     public LLVMValueRef visitFuncDef(SysYParser.FuncDefContext ctx) {
-        //生成返回值类型
-        LLVMTypeRef returnType = i32Type;
+        LLVMTypeRef returnType = LLVMInt32Type();
 
-        //生成函数参数类型
         PointerPointer<Pointer> argumentTypes;
         int argumentCount;
         if (ctx.funcFParams() != null) {
@@ -85,23 +77,38 @@ public class MyVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
             argumentTypes = null;
         }
 
-        //生成函数类型
-        LLVMTypeRef ft = LLVMFunctionType(returnType, argumentTypes, argumentCount, 0);
+        // Generate the function type
+        LLVMTypeRef functionType = LLVMFunctionType(returnType, argumentTypes, argumentCount, 0);
 
-        //生成函数，即向之前创建的module中添加函数
-        LLVMValueRef function = LLVMAddFunction(module, ctx.IDENT().toString(), ft);
+        // Generate the function
+        LLVMValueRef function = LLVMAddFunction(module, ctx.IDENT().toString(), functionType);
 
+        FunctionSymbol symbol = new FunctionSymbol(ctx.IDENT().toString(), functionType);
+        LocalScope scope = new LocalScope(currentScope);
+        scope.define(symbol);
         LLVMBasicBlockRef block = LLVMAppendBasicBlock(function, ctx.IDENT().toString() + "Entry");
-
+        visit(ctx.funcFParams());
+        blockStack.push(block);
         LLVMPositionBuilderAtEnd(builder, block);
         visit(ctx.block());
+        currentScope = currentScope.getEnclosingScope();
+        return null;
+    }
+
+    @Override
+    public LLVMValueRef visitFuncFParams(SysYParser.FuncFParamsContext ctx) {
+        for (int i = 0; i < ctx.funcFParam().size(); i++) {
+            LLVMValueRef pointer = LLVMBuildAlloca(builder, LLVMInt32Type(), ctx.funcFParam(i).IDENT().getText());
+            VariableSymbol symbol = new VariableSymbol(ctx.funcFParam(i).IDENT().toString(), LLVMInt32Type(), pointer, false);
+            currentScope.define(symbol);
+            //todo
+        }
         return null;
     }
 
     @Override
     public LLVMValueRef visitBlock(SysYParser.BlockContext ctx) {
-        Scope localScope = new LocalScope(currentScope);
-        this.currentScope = localScope;
+        this.currentScope = new LocalScope(currentScope);
         ctx.blockItem().forEach(this::visit);
         currentScope = currentScope.getEnclosingScope();
         return null;
@@ -129,8 +136,8 @@ public class MyVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
 
     @Override
     public LLVMValueRef visitLValExp(SysYParser.LValExpContext ctx) {
-        Symbol symbol = currentScope.resolve(ctx.lVal().IDENT().toString());
-        //从内存中将值取出
+        VariableSymbol symbol = (VariableSymbol) currentScope.resolve(ctx.lVal().IDENT().toString());
+        // Load the value
         LLVMValueRef lVal = LLVMBuildLoad(builder, symbol.getPointer(), symbol.getName());
         return lVal;
     }
@@ -160,20 +167,20 @@ public class MyVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
         } else if (ctx.number().DECIMAL_INTEGER() != null) {
             result = Long.parseLong(ctx.number().DECIMAL_INTEGER().toString());
         }
-        return LLVMConstInt(i32Type, result, 0);
+        return LLVMConstInt(LLVMInt32Type(), result, 0);
     }
 
     @Override
     public LLVMValueRef visitUnaryOpExp(SysYParser.UnaryOpExpContext ctx) {
         LLVMValueRef result = visit(ctx.exp());
         if (ctx.unaryOp().MINUS() != null) {
-            result = LLVMBuildNSWSub(builder, LLVMConstInt(i32Type, 0, 0), result, "result");
+            result = LLVMBuildNSWSub(builder, LLVMConstInt(LLVMInt32Type(), 0, 0), result, "result");
         } else if (ctx.unaryOp().PLUS() != null) {
-            result = LLVMBuildNSWAdd(builder, LLVMConstInt(i32Type, 0, 0), result, "result");
+            result = LLVMBuildNSWAdd(builder, LLVMConstInt(LLVMInt32Type(), 0, 0), result, "result");
         } else if (ctx.unaryOp().NOT() != null) {
-            result = LLVMBuildICmp(builder, LLVMIntNE, LLVMConstInt(i32Type, 0, 0), result, "result");
+            result = LLVMBuildICmp(builder, LLVMIntNE, LLVMConstInt(LLVMInt32Type(), 0, 0), result, "result");
             result = LLVMBuildXor(builder, result, LLVMConstInt(LLVMInt1Type(), 1, 0), "result");
-            result = LLVMBuildZExt(builder, result, i32Type, "result");
+            result = LLVMBuildZExt(builder, result, LLVMInt32Type(), "result");
         }
         return result;
     }
@@ -206,7 +213,79 @@ public class MyVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
 
     @Override
     public LLVMValueRef visitLVal(SysYParser.LValContext ctx) {
-        Symbol symbol = currentScope.resolve(ctx.IDENT().toString());
+        VariableSymbol symbol = (VariableSymbol) currentScope.resolve(ctx.IDENT().toString());
         return symbol.getPointer();
+    }
+
+    // Stream Control Statement
+
+    @Override
+    public LLVMValueRef visitBlockItem(SysYParser.BlockItemContext ctx) {
+        return super.visitBlockItem(ctx);
+    }
+
+    @Override
+    public LLVMValueRef visitBlockStmt(SysYParser.BlockStmtContext ctx) {
+        return super.visitBlockStmt(ctx);
+    }
+
+    @Override
+    public LLVMValueRef visitIfStmt(SysYParser.IfStmtContext ctx) {
+        return super.visitIfStmt(ctx);
+    }
+
+    @Override
+    public LLVMValueRef visitWhileStmt(SysYParser.WhileStmtContext ctx) {
+        return super.visitWhileStmt(ctx);
+    }
+
+    @Override
+    public LLVMValueRef visitBreakStmt(SysYParser.BreakStmtContext ctx) {
+        return super.visitBreakStmt(ctx);
+    }
+
+    @Override
+    public LLVMValueRef visitContinueStmt(SysYParser.ContinueStmtContext ctx) {
+        return super.visitContinueStmt(ctx);
+    }
+
+    @Override
+    public LLVMValueRef visitOrCond(SysYParser.OrCondContext ctx) {
+        return super.visitOrCond(ctx);
+    }
+
+    @Override
+    public LLVMValueRef visitAndCond(SysYParser.AndCondContext ctx) {
+        return super.visitAndCond(ctx);
+    }
+
+    @Override
+    public LLVMValueRef visitLeCond(SysYParser.LeCondContext ctx) {
+        return super.visitLeCond(ctx);
+    }
+
+    @Override
+    public LLVMValueRef visitNeqCond(SysYParser.NeqCondContext ctx) {
+        return super.visitNeqCond(ctx);
+    }
+
+    @Override
+    public LLVMValueRef visitGtCond(SysYParser.GtCondContext ctx) {
+        return super.visitGtCond(ctx);
+    }
+
+    @Override
+    public LLVMValueRef visitGeCond(SysYParser.GeCondContext ctx) {
+        return super.visitGeCond(ctx);
+    }
+
+    @Override
+    public LLVMValueRef visitEqCond(SysYParser.EqCondContext ctx) {
+        return super.visitEqCond(ctx);
+    }
+
+    @Override
+    public LLVMValueRef visitLtCond(SysYParser.LtCondContext ctx) {
+        return super.visitLtCond(ctx);
     }
 }

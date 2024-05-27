@@ -48,6 +48,10 @@ AND : '&&' ;
 
 OR : '||' ;
 
+TRUE : 'true' ;
+
+FALSE : 'false' ;
+
 L_PAREN : '(' ;
 
 R_PAREN : ')' ;

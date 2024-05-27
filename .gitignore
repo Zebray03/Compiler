@@ -33,3 +33,6 @@ bin/
 ### Antlr 4 ###
 /gen
 /pkg
+
+### LLVM ###
+/*.log
