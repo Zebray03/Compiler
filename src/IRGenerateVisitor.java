@@ -75,6 +75,10 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
         if (ctx.funcFParams() != null) {
             argumentCount = ctx.funcFParams().funcFParam().size();
             argumentTypes = new PointerPointer<>(argumentCount);
+            for (int i = 0; i < argumentCount; i++) {
+                // Renew the argument type list
+                argumentTypes.put(LLVMInt32Type());
+            }
         } else {
             argumentCount = 0;
             argumentTypes = null;
@@ -85,14 +89,14 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
 
         // Generate the function
         LLVMValueRef function = LLVMAddFunction(module, ctx.IDENT().toString(), functionType);
-
         currentFunction = function;
 
+        // Generate the function symbol and local scope
         FunctionSymbol symbol = new FunctionSymbol(ctx.IDENT().toString(), functionType, function);
-
         currentScope.define(symbol);
         currentScope = new LocalScope(currentScope);
 
+        // Generate the function block
         LLVMBasicBlockRef block = LLVMAppendBasicBlock(function, ctx.IDENT().toString() + "Entry");
         blockStack.push(block);
         LLVMPositionBuilderAtEnd(builder, block);
@@ -103,6 +107,7 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
 
         visit(ctx.block());
 
+        // Exit the function definition
         currentScope = currentScope.getEnclosingScope();
         blockStack.pop();
         return null;
@@ -112,8 +117,13 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
     public LLVMValueRef visitFuncFParams(SysYParser.FuncFParamsContext ctx) {
         for (int i = 0; i < ctx.funcFParam().size(); i++) {
             LLVMValueRef pointer = LLVMBuildAlloca(builder, LLVMInt32Type(), ctx.funcFParam(i).IDENT().getText());
+
+            // Define the symbol for the format argument
             VariableSymbol symbol = new VariableSymbol(ctx.funcFParam(i).IDENT().toString(), LLVMInt32Type(), pointer, false);
             currentScope.define(symbol);
+
+            // Store the argument value
+            LLVMBuildStore(builder, LLVMGetParam(currentFunction, i), pointer);
         }
         return null;
     }
@@ -139,11 +149,6 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
         LLVMValueRef returnVal = visit(ctx.exp());
         LLVMBuildRet(builder, returnVal);
         return null;
-    }
-
-    @Override
-    public LLVMValueRef visitCombineExp(SysYParser.CombineExpContext ctx) {
-        return visit(ctx.exp());
     }
 
     @Override
@@ -184,23 +189,28 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
 
     @Override
     public LLVMValueRef visitFuncCallExp(SysYParser.FuncCallExpContext ctx) {
+        // Get the function
         FunctionSymbol symbol = (FunctionSymbol) currentScope.resolve(ctx.IDENT().toString());
         LLVMValueRef function = symbol.getPointer();
-        PointerPointer<Pointer> pointer;
-        LLVMValueRef returnValue = null;
 
+        // Get the argument and result
+        int argumentCount = 0;
+        PointerPointer<Pointer> pointer;
         if (ctx.funcRParams() != null) {
-            pointer = new PointerPointer<>();
+            argumentCount = ctx.funcRParams().param().size();
+            pointer = new PointerPointer<>(argumentCount);
             for (int i = 0; i < ctx.funcRParams().param().size(); i++) {
-                LLVMValueRef argu = visit(ctx.funcRParams().param().get(i));
-                System.out.println();
-                pointer.put(argu);
-                returnValue = LLVMBuildCall2(builder, symbol.getType(), function, pointer, ctx.funcRParams().param().size(), "returnValue");
+                LLVMValueRef argument = visit(ctx.funcRParams().param().get(i));
+                pointer.put(argument.getPointer());
             }
         } else {
-            pointer = null;
-            returnValue = LLVMBuildCall2(builder, symbol.getType(), function, pointer, 0, "returnValue");
+            pointer = new PointerPointer<>(argumentCount);
         }
+
+        // Get the result
+        LLVMValueRef returnValue = null;
+        returnValue = LLVMBuildCall2(builder, symbol.getType(), function, pointer, argumentCount, "returnValue");
+
         return returnValue;
     }
 
