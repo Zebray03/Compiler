@@ -11,6 +11,7 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
     LLVMBuilderRef builder;
     GlobalScope globalScope;
     Scope currentScope;
+    LLVMValueRef currentFunction;
     Stack<LLVMBasicBlockRef> blockStack;
 
     @Override
@@ -83,15 +84,25 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
         // Generate the function
         LLVMValueRef function = LLVMAddFunction(module, ctx.IDENT().toString(), functionType);
 
-        FunctionSymbol symbol = new FunctionSymbol(ctx.IDENT().toString(), functionType);
-        LocalScope scope = new LocalScope(currentScope);
-        scope.define(symbol);
+        currentFunction = function;
+
+        FunctionSymbol symbol = new FunctionSymbol(ctx.IDENT().toString(), functionType, function);
+
+        currentScope.define(symbol);
+        currentScope = new LocalScope(currentScope);
+
         LLVMBasicBlockRef block = LLVMAppendBasicBlock(function, ctx.IDENT().toString() + "Entry");
-        visit(ctx.funcFParams());
         blockStack.push(block);
         LLVMPositionBuilderAtEnd(builder, block);
+
+        if (argumentCount != 0) {
+            visit(ctx.funcFParams());
+        }
+
         visit(ctx.block());
+
         currentScope = currentScope.getEnclosingScope();
+        blockStack.pop();
         return null;
     }
 
@@ -101,7 +112,6 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
             LLVMValueRef pointer = LLVMBuildAlloca(builder, LLVMInt32Type(), ctx.funcFParam(i).IDENT().getText());
             VariableSymbol symbol = new VariableSymbol(ctx.funcFParam(i).IDENT().toString(), LLVMInt32Type(), pointer, false);
             currentScope.define(symbol);
-            //todo
         }
         return null;
     }
@@ -145,7 +155,7 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
     @Override
     public LLVMValueRef visitIntExp(SysYParser.IntExpContext ctx) {
         long result = 0;
-        //判断进制
+        // OCTAL_INTEGER or HEXADECIMAL_INTEGER or DECIMAL_INTEGER
         if (ctx.number().OCTAL_INTEGER() != null) {
             String str = ctx.number().OCTAL_INTEGER().toString();
             for (int i = 0; i < str.length(); i++) {
@@ -168,6 +178,28 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
             result = Long.parseLong(ctx.number().DECIMAL_INTEGER().toString());
         }
         return LLVMConstInt(LLVMInt32Type(), result, 0);
+    }
+
+    @Override
+    public LLVMValueRef visitFuncCallExp(SysYParser.FuncCallExpContext ctx) {
+        FunctionSymbol symbol = (FunctionSymbol) currentScope.resolve(ctx.IDENT().toString());
+        LLVMValueRef function = symbol.getPointer();
+        PointerPointer<Pointer> pointer;
+        LLVMValueRef returnValue = null;
+
+        if (ctx.funcRParams() != null) {
+            pointer = new PointerPointer<>();
+            for (int i = 0; i < ctx.funcRParams().param().size(); i++) {
+                LLVMValueRef argu = visit(ctx.funcRParams().param().get(i));
+                System.out.println();
+                pointer.put(argu);
+                returnValue = LLVMBuildCall2(builder, symbol.getType(), function, pointer, ctx.funcRParams().param().size(), "returnValue");
+            }
+        } else {
+            pointer = null;
+            returnValue = LLVMBuildCall2(builder, symbol.getType(), function, pointer, 0, "returnValue");
+        }
+        return returnValue;
     }
 
     @Override
@@ -218,74 +250,139 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
     }
 
     // Stream Control Statement
-
-    @Override
-    public LLVMValueRef visitBlockItem(SysYParser.BlockItemContext ctx) {
-        return super.visitBlockItem(ctx);
-    }
-
-    @Override
-    public LLVMValueRef visitBlockStmt(SysYParser.BlockStmtContext ctx) {
-        return super.visitBlockStmt(ctx);
-    }
-
     @Override
     public LLVMValueRef visitIfStmt(SysYParser.IfStmtContext ctx) {
-        return super.visitIfStmt(ctx);
+        LLVMValueRef condition = visit(ctx.cond());
+        LLVMBasicBlockRef ifTrueBlock = LLVMAppendBasicBlock(currentFunction, "true");
+        LLVMBasicBlockRef ifFalseBlock = LLVMAppendBasicBlock(currentFunction, "false");
+        LLVMBasicBlockRef nextBlock = LLVMAppendBasicBlock(currentFunction, "entry");
+        LLVMBuildCondBr(builder, condition, ifTrueBlock, ifFalseBlock);
+
+        // ifTrueBlock
+        LLVMPositionBuilderAtEnd(builder, ifTrueBlock);
+        blockStack.push(ifTrueBlock);
+        visit(ctx.stmt(0));
+        blockStack.pop();
+        LLVMBuildBr(builder, nextBlock);
+        LLVMPositionBuilderAtEnd(builder, nextBlock);
+
+        // ifFalseBlock
+        LLVMPositionBuilderAtEnd(builder, ifFalseBlock);
+        if (ctx.ELSE() != null) {
+            blockStack.push(ifFalseBlock);
+            visit(ctx.stmt(1));
+            blockStack.pop();
+        }
+        LLVMBuildBr(builder, nextBlock);
+        LLVMPositionBuilderAtEnd(builder, nextBlock);
+
+        // nextBlock as the alternative of origin block
+        blockStack.pop();
+        blockStack.push(nextBlock);
+        return null;
     }
 
     @Override
     public LLVMValueRef visitWhileStmt(SysYParser.WhileStmtContext ctx) {
-        return super.visitWhileStmt(ctx);
+        LLVMBasicBlockRef conditionBlock = LLVMAppendBasicBlock(currentFunction, "whileCondition");
+        LLVMBasicBlockRef bodyBlock = LLVMAppendBasicBlock(currentFunction, "whileBody");
+        LLVMBasicBlockRef nextBlock = LLVMAppendBasicBlock(currentFunction, "entry");
+
+        // conditionBlock
+        LLVMPositionBuilderAtEnd(builder, conditionBlock);
+        blockStack.push(conditionBlock);
+        LLVMValueRef condition = visit(ctx.cond());
+        blockStack.pop();
+        LLVMBuildCondBr(builder, condition, bodyBlock, nextBlock);
+
+        // bodyBlock
+        LLVMPositionBuilderAtEnd(builder, bodyBlock);
+        blockStack.push(bodyBlock);
+        visit(ctx.stmt());
+        blockStack.pop();
+        condition = visit(ctx.cond());
+        LLVMBuildCondBr(builder, condition, bodyBlock, nextBlock);
+
+        // nextBlock
+        LLVMPositionBuilderAtEnd(builder, nextBlock);
+        // nextBlock as the alternative of origin block
+        blockStack.pop();
+        blockStack.push(nextBlock);
+        return null;
     }
 
     @Override
     public LLVMValueRef visitBreakStmt(SysYParser.BreakStmtContext ctx) {
+
         return super.visitBreakStmt(ctx);
     }
 
     @Override
     public LLVMValueRef visitContinueStmt(SysYParser.ContinueStmtContext ctx) {
+
         return super.visitContinueStmt(ctx);
     }
 
+    // Condition Expression
     @Override
-    public LLVMValueRef visitOrCond(SysYParser.OrCondContext ctx) {
-        return super.visitOrCond(ctx);
-    }
-
-    @Override
-    public LLVMValueRef visitAndCond(SysYParser.AndCondContext ctx) {
-        return super.visitAndCond(ctx);
-    }
-
-    @Override
-    public LLVMValueRef visitLeCond(SysYParser.LeCondContext ctx) {
-        return super.visitLeCond(ctx);
-    }
-
-    @Override
-    public LLVMValueRef visitNeqCond(SysYParser.NeqCondContext ctx) {
-        return super.visitNeqCond(ctx);
+    public LLVMValueRef visitLtCond(SysYParser.LtCondContext ctx) {
+        LLVMValueRef lhs = visit(ctx.cond(0));
+        LLVMValueRef rhs = visit(ctx.cond(1));
+        LLVMValueRef tmp = LLVMBuildICmp(builder, LLVMIntSLT, lhs, rhs, "tmp_");
+        tmp = LLVMBuildZExt(builder, tmp, LLVMInt32Type(), "tmp_");
+        tmp = LLVMBuildICmp(builder, LLVMIntNE, LLVMConstInt(LLVMInt32Type(), 0, 0), tmp, "tmp_");
+        return tmp;
     }
 
     @Override
     public LLVMValueRef visitGtCond(SysYParser.GtCondContext ctx) {
-        return super.visitGtCond(ctx);
+        LLVMValueRef lhs = visit(ctx.cond(0));
+        LLVMValueRef rhs = visit(ctx.cond(1));
+        LLVMValueRef tmp = LLVMBuildICmp(builder, LLVMIntSGT, lhs, rhs, "tmp_");
+        tmp = LLVMBuildZExt(builder, tmp, LLVMInt32Type(), "tmp_");
+        tmp = LLVMBuildICmp(builder, LLVMIntNE, LLVMConstInt(LLVMInt32Type(), 0, 0), tmp, "tmp_");
+        return tmp;
+    }
+
+    @Override
+    public LLVMValueRef visitLeCond(SysYParser.LeCondContext ctx) {
+        LLVMValueRef lhs = visit(ctx.cond(0));
+        LLVMValueRef rhs = visit(ctx.cond(1));
+        LLVMValueRef tmp = LLVMBuildICmp(builder, LLVMIntSLE, lhs, rhs, "tmp_");
+        tmp = LLVMBuildZExt(builder, tmp, LLVMInt32Type(), "tmp_");
+        tmp = LLVMBuildICmp(builder, LLVMIntNE, LLVMConstInt(LLVMInt32Type(), 0, 0), tmp, "tmp_");
+        return tmp;
     }
 
     @Override
     public LLVMValueRef visitGeCond(SysYParser.GeCondContext ctx) {
-        return super.visitGeCond(ctx);
+        LLVMValueRef lhs = visit(ctx.cond(0));
+        LLVMValueRef rhs = visit(ctx.cond(1));
+        LLVMValueRef tmp = LLVMBuildICmp(builder, LLVMIntSGE, lhs, rhs, "tmp_");
+        tmp = LLVMBuildZExt(builder, tmp, LLVMInt32Type(), "tmp_");
+        tmp = LLVMBuildICmp(builder, LLVMIntNE, LLVMConstInt(LLVMInt32Type(), 0, 0), tmp, "tmp_");
+        return tmp;
     }
 
     @Override
     public LLVMValueRef visitEqCond(SysYParser.EqCondContext ctx) {
-        return super.visitEqCond(ctx);
+        LLVMValueRef lhs = visit(ctx.cond(0));
+        LLVMValueRef rhs = visit(ctx.cond(1));
+        LLVMValueRef tmp = LLVMBuildICmp(builder, LLVMIntEQ, lhs, rhs, "tmp_");
+        tmp = LLVMBuildZExt(builder, tmp, LLVMInt32Type(), "tmp_");
+        tmp = LLVMBuildICmp(builder, LLVMIntNE, LLVMConstInt(LLVMInt32Type(), 0, 0), tmp, "tmp_");
+        return tmp;
     }
 
     @Override
-    public LLVMValueRef visitLtCond(SysYParser.LtCondContext ctx) {
-        return super.visitLtCond(ctx);
+    public LLVMValueRef visitNeqCond(SysYParser.NeqCondContext ctx) {
+        LLVMValueRef lhs = visit(ctx.cond(0));
+        LLVMValueRef rhs = visit(ctx.cond(1));
+        LLVMValueRef tmp = LLVMBuildICmp(builder, LLVMIntNE, lhs, rhs, "tmp_");
+        tmp = LLVMBuildZExt(builder, tmp, LLVMInt32Type(), "tmp_");
+        tmp = LLVMBuildICmp(builder, LLVMIntNE, LLVMConstInt(LLVMInt32Type(), 0, 0), tmp, "tmp_");
+        return tmp;
     }
+
+
 }

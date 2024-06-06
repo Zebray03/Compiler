@@ -46,19 +46,19 @@ stmt : lVal ASSIGN exp SEMICOLON                    # AssignStmt
      | (exp)? SEMICOLON                             # ExpStmt
      | block                                        # BlockStmt
      | IF L_PAREN cond R_PAREN stmt (ELSE stmt)?    # IfStmt
-     | WHILE L_PAREN cond R_PAREN                   # WhileStmt
+     | WHILE L_PAREN cond R_PAREN stmt              # WhileStmt
      | BREAK SEMICOLON                              # BreakStmt
      | CONTINUE SEMICOLON                           # ContinueStmt
      | RETURN exp? SEMICOLON                        # RuturnStmt
      ;
 
-exp : L_PAREN exp R_PAREN                   # CombineExp
-    | lVal                                  # LValExp
-    | number                                # IntExp
-    | IDENT L_PAREN funcRParams? R_PAREN    # FuncCallExp
+exp : IDENT L_PAREN funcRParams? R_PAREN    # FuncCallExp
     | unaryOp exp                           # UnaryOpExp
     | exp (MUL | DIV | MOD) exp             # UpperCalExp
     | exp (PLUS | MINUS) exp                # LowerCalExp
+    | L_PAREN exp R_PAREN                   # CombineExp
+    | lVal                                  # LValExp
+    | number                                # IntExp
     ;
 
 cond : exp                  # ExpCond
@@ -66,8 +66,8 @@ cond : exp                  # ExpCond
      | cond GT cond         # GtCond
      | cond LE cond         # LeCond
      | cond GE cond         # GeCond
-     | cond (EQ | NEQ) cond # EqCond
-     | cond (EQ | NEQ) cond # NeqCond
+     | cond EQ cond         # EqCond
+     | cond NEQ cond        # NeqCond
      | cond AND cond        # AndCond
      | cond OR cond         # OrCond
      | TRUE                 # TrueCond

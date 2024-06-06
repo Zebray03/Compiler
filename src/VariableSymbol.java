@@ -14,14 +14,15 @@ public class VariableSymbol implements Symbol {
         this.isVariadic = whetherVariadic;
     }
 
+    @Override
     public String getName() {
         return name;
     }
-
+    @Override
     public LLVMTypeRef getType() {
         return type;
     }
-
+    @Override
     public LLVMValueRef getPointer() {
         return pointer;
     }
