@@ -1,10 +1,27 @@
-int a = 10;
-int main() {
-    if (a != 10 || a != 20) {
-        a = 2;
+void f(int i,int j)
+{
+    return;
+}
+int g(int i,int j)
+{
+    return i||j;
+}
+int main(){
+    int a = 1;
+    int b=1;
+    int c=1;
+    c+1;
+    if(g(a,b))
+    {
+        if(a>1)
+        {
+            return f(g(a,b),c);
+        }
+        else
+        {
+            return 1;
+        }
     }
-    else {
-        a = 20;
-    }
-    return a;
+
+
 }

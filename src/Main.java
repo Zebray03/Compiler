@@ -31,8 +31,8 @@ public class Main {
 
         visitor.visit(tree);
 
-        //LLVMDumpModule(visitor.module);
-        BytePointer error = new BytePointer();
-        LLVMPrintModuleToFile(visitor.module, target, error);
+        LLVMDumpModule(visitor.module);
+        //BytePointer error = new BytePointer();
+        //LLVMPrintModuleToFile(visitor.module, target, error);
     }
 }

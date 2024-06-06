@@ -68,7 +68,12 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
 
     @Override
     public LLVMValueRef visitFuncDef(SysYParser.FuncDefContext ctx) {
-        LLVMTypeRef returnType = LLVMInt32Type();
+        LLVMTypeRef returnType;
+        if (ctx.funcType().INT() != null) {
+            returnType = LLVMInt32Type();
+        } else {
+            returnType = LLVMVoidType();
+        }
 
         PointerPointer<Pointer> argumentTypes;
         int argumentCount;
@@ -77,7 +82,7 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
             argumentTypes = new PointerPointer<>(argumentCount);
             for (int i = 0; i < argumentCount; i++) {
                 // Renew the argument type list
-                argumentTypes.put(LLVMInt32Type());
+                argumentTypes.put(i, LLVMInt32Type());
             }
         } else {
             argumentCount = 0;
@@ -119,7 +124,7 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
             LLVMValueRef pointer = LLVMBuildAlloca(builder, LLVMInt32Type(), ctx.funcFParam(i).IDENT().getText());
 
             // Define the symbol for the format argument
-            VariableSymbol symbol = new VariableSymbol(ctx.funcFParam(i).IDENT().toString(), LLVMInt32Type(), pointer, false);
+            VariableSymbol symbol = new VariableSymbol(ctx.funcFParam(i).IDENT().getText(), LLVMInt32Type(), pointer, false);
             currentScope.define(symbol);
 
             // Store the argument value
@@ -146,8 +151,14 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
 
     @Override
     public LLVMValueRef visitRuturnStmt(SysYParser.RuturnStmtContext ctx) {
-        LLVMValueRef returnVal = visit(ctx.exp());
-        LLVMBuildRet(builder, returnVal);
+        LLVMValueRef returnVal;
+        if (ctx.exp() != null) {
+            returnVal = visit(ctx.exp());
+            LLVMBuildRet(builder, returnVal);
+        } else if(ctx.cond() != null) {
+            returnVal = visit(ctx.cond());
+            LLVMBuildRet(builder, returnVal);
+        }
         return null;
     }
 
@@ -201,17 +212,19 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
             pointer = new PointerPointer<>(argumentCount);
             for (int i = 0; i < ctx.funcRParams().param().size(); i++) {
                 LLVMValueRef argument = visit(ctx.funcRParams().param().get(i));
-                pointer.put(argument.getPointer());
+                pointer.put(i, argument.getPointer());
             }
         } else {
             pointer = new PointerPointer<>(argumentCount);
         }
 
-        // Get the result
-        LLVMValueRef returnValue = null;
-        returnValue = LLVMBuildCall2(builder, symbol.getType(), function, pointer, argumentCount, "returnValue");
-
-        return returnValue;
+        if (symbol.getType() != LLVMVoidType()) {
+            // Get the result
+            LLVMValueRef returnValue = LLVMBuildCall2(builder, symbol.getType(), function, pointer, argumentCount, "returnValue");
+            return returnValue;
+        } else {
+            return null;
+        }
     }
 
     @Override
@@ -268,6 +281,9 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
         LLVMBasicBlockRef ifTrueBlock = LLVMAppendBasicBlock(currentFunction, "ifConditionIsTrue");
         LLVMBasicBlockRef ifFalseBlock = LLVMAppendBasicBlock(currentFunction, "ifConditionIsFalse");
         LLVMBasicBlockRef nextBlock = LLVMAppendBasicBlock(currentFunction, "entry");
+
+        condition = LLVMBuildZExt(builder, condition, LLVMInt32Type(), "_tmp");
+        condition = LLVMBuildICmp(builder, LLVMIntNE, LLVMConstInt(LLVMInt32Type(), 0, 0), condition, "ifCondition");
         LLVMBuildCondBr(builder, condition, ifTrueBlock, ifFalseBlock);
 
         // ifTrueBlock
@@ -308,6 +324,9 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
         blockStack.push(conditionBlock);
         LLVMValueRef condition = visit(ctx.cond());
         blockStack.pop();
+
+        condition = LLVMBuildZExt(builder, condition, LLVMInt32Type(), "_tmp");
+        condition = LLVMBuildICmp(builder, LLVMIntNE, LLVMConstInt(LLVMInt32Type(), 0, 0), condition, "whileCondition");
         LLVMBuildCondBr(builder, condition, bodyBlock, nextBlock);
 
         // bodyBlock
@@ -342,7 +361,9 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
     @Override
     public LLVMValueRef visitLtCond(SysYParser.LtCondContext ctx) {
         LLVMValueRef lhs = visit(ctx.cond(0));
+        lhs = LLVMBuildZExt(builder, lhs, LLVMInt32Type(), "lhs");
         LLVMValueRef rhs = visit(ctx.cond(1));
+        rhs = LLVMBuildZExt(builder, rhs, LLVMInt32Type(), "rhs");
         LLVMValueRef tmp = LLVMBuildICmp(builder, LLVMIntSLT, lhs, rhs, "tmp_");
         tmp = LLVMBuildZExt(builder, tmp, LLVMInt32Type(), "tmp_");
         tmp = LLVMBuildICmp(builder, LLVMIntNE, LLVMConstInt(LLVMInt32Type(), 0, 0), tmp, "tmp_");
@@ -352,7 +373,9 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
     @Override
     public LLVMValueRef visitGtCond(SysYParser.GtCondContext ctx) {
         LLVMValueRef lhs = visit(ctx.cond(0));
+        lhs = LLVMBuildZExt(builder, lhs, LLVMInt32Type(), "lhs");
         LLVMValueRef rhs = visit(ctx.cond(1));
+        rhs = LLVMBuildZExt(builder, rhs, LLVMInt32Type(), "rhs");
         LLVMValueRef tmp = LLVMBuildICmp(builder, LLVMIntSGT, lhs, rhs, "tmp_");
         tmp = LLVMBuildZExt(builder, tmp, LLVMInt32Type(), "tmp_");
         tmp = LLVMBuildICmp(builder, LLVMIntNE, LLVMConstInt(LLVMInt32Type(), 0, 0), tmp, "tmp_");
@@ -362,7 +385,9 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
     @Override
     public LLVMValueRef visitLeCond(SysYParser.LeCondContext ctx) {
         LLVMValueRef lhs = visit(ctx.cond(0));
+        lhs = LLVMBuildZExt(builder, lhs, LLVMInt32Type(), "lhs");
         LLVMValueRef rhs = visit(ctx.cond(1));
+        rhs = LLVMBuildZExt(builder, rhs, LLVMInt32Type(), "rhs");
         LLVMValueRef tmp = LLVMBuildICmp(builder, LLVMIntSLE, lhs, rhs, "tmp_");
         tmp = LLVMBuildZExt(builder, tmp, LLVMInt32Type(), "tmp_");
         tmp = LLVMBuildICmp(builder, LLVMIntNE, LLVMConstInt(LLVMInt32Type(), 0, 0), tmp, "tmp_");
@@ -372,7 +397,9 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
     @Override
     public LLVMValueRef visitGeCond(SysYParser.GeCondContext ctx) {
         LLVMValueRef lhs = visit(ctx.cond(0));
+        lhs = LLVMBuildZExt(builder, lhs, LLVMInt32Type(), "lhs");
         LLVMValueRef rhs = visit(ctx.cond(1));
+        rhs = LLVMBuildZExt(builder, rhs, LLVMInt32Type(), "rhs");
         LLVMValueRef tmp = LLVMBuildICmp(builder, LLVMIntSGE, lhs, rhs, "tmp_");
         tmp = LLVMBuildZExt(builder, tmp, LLVMInt32Type(), "tmp_");
         tmp = LLVMBuildICmp(builder, LLVMIntNE, LLVMConstInt(LLVMInt32Type(), 0, 0), tmp, "tmp_");
@@ -382,7 +409,9 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
     @Override
     public LLVMValueRef visitEqCond(SysYParser.EqCondContext ctx) {
         LLVMValueRef lhs = visit(ctx.cond(0));
+        lhs = LLVMBuildZExt(builder, lhs, LLVMInt32Type(), "lhs");
         LLVMValueRef rhs = visit(ctx.cond(1));
+        rhs = LLVMBuildZExt(builder, rhs, LLVMInt32Type(), "rhs");
         LLVMValueRef tmp = LLVMBuildICmp(builder, LLVMIntEQ, lhs, rhs, "tmp_");
         tmp = LLVMBuildZExt(builder, tmp, LLVMInt32Type(), "tmp_");
         tmp = LLVMBuildICmp(builder, LLVMIntNE, LLVMConstInt(LLVMInt32Type(), 0, 0), tmp, "tmp_");
@@ -392,7 +421,9 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
     @Override
     public LLVMValueRef visitNeqCond(SysYParser.NeqCondContext ctx) {
         LLVMValueRef lhs = visit(ctx.cond(0));
+        lhs = LLVMBuildZExt(builder, lhs, LLVMInt32Type(), "lhs");
         LLVMValueRef rhs = visit(ctx.cond(1));
+        rhs = LLVMBuildZExt(builder, rhs, LLVMInt32Type(), "rhs");
         LLVMValueRef tmp = LLVMBuildICmp(builder, LLVMIntNE, lhs, rhs, "tmp_");
         tmp = LLVMBuildZExt(builder, tmp, LLVMInt32Type(), "tmp_");
         tmp = LLVMBuildICmp(builder, LLVMIntNE, LLVMConstInt(LLVMInt32Type(), 0, 0), tmp, "tmp_");
@@ -402,16 +433,20 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
     @Override
     public LLVMValueRef visitAndCond(SysYParser.AndCondContext ctx) {
         LLVMValueRef lhs = visit(ctx.cond(0));
+        lhs = LLVMBuildZExt(builder, lhs, LLVMInt32Type(), "lhs");
         LLVMBasicBlockRef lhsIsTrueBlock = LLVMAppendBasicBlock(currentFunction, "lhsIsTrue");
         LLVMBasicBlockRef lhsIsFalseBlock = LLVMAppendBasicBlock(currentFunction, "lhsIsFalse");
         LLVMBasicBlockRef nextBlock = LLVMAppendBasicBlock(currentFunction, "entry");
 
+        lhs = LLVMBuildICmp(builder, LLVMIntNE, LLVMConstInt(LLVMInt32Type(), 0, 0), lhs, "tmp_");
         LLVMBuildCondBr(builder, lhs, lhsIsTrueBlock, lhsIsFalseBlock);
 
         // lhsIsTrue
         LLVMPositionBuilderAtEnd(builder, lhsIsTrueBlock);
         blockStack.push(lhsIsTrueBlock);
         LLVMValueRef rhs = visit(ctx.cond(1));
+        lhs = LLVMBuildZExt(builder, lhs, LLVMInt32Type(), "lhs");
+        rhs = LLVMBuildZExt(builder, rhs, LLVMInt32Type(), "rhs");
         LLVMBuildBr(builder, nextBlock);
         blockStack.pop();
 
@@ -426,16 +461,19 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
         blockStack.pop();
         blockStack.push(nextBlock);
 
-        return LLVMBuildAnd(builder, lhs, rhs, "tmp_");
+        LLVMValueRef andResult = LLVMBuildAnd(builder, lhs, rhs, "tmp_");
+        return LLVMBuildICmp(builder, LLVMIntNE, LLVMConstInt(LLVMInt32Type(), 0, 0), andResult, "tmp_");
     }
 
     @Override
     public LLVMValueRef visitOrCond(SysYParser.OrCondContext ctx) {
         LLVMValueRef lhs = visit(ctx.cond(0));
+        lhs = LLVMBuildZExt(builder, lhs, LLVMInt32Type(), "lhs");
         LLVMBasicBlockRef lhsIsTrueBlock = LLVMAppendBasicBlock(currentFunction, "lhsIsTrue");
         LLVMBasicBlockRef lhsIsFalseBlock = LLVMAppendBasicBlock(currentFunction, "lhsIsFalse");
         LLVMBasicBlockRef nextBlock = LLVMAppendBasicBlock(currentFunction, "entry");
 
+        lhs = LLVMBuildICmp(builder, LLVMIntNE, LLVMConstInt(LLVMInt32Type(), 0, 0), lhs, "tmp_");
         LLVMBuildCondBr(builder, lhs, lhsIsTrueBlock, lhsIsFalseBlock);
 
         // lhsIsTrue
@@ -447,6 +485,8 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
         LLVMPositionBuilderAtEnd(builder, lhsIsFalseBlock);
         blockStack.push(lhsIsFalseBlock);
         LLVMValueRef rhs = visit(ctx.cond(1));
+        lhs = LLVMBuildZExt(builder, lhs, LLVMInt32Type(), "lhs");
+        rhs = LLVMBuildZExt(builder, rhs, LLVMInt32Type(), "rhs");
         LLVMBuildBr(builder, nextBlock);
         blockStack.pop();
 
@@ -456,7 +496,8 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
         blockStack.pop();
         blockStack.push(nextBlock);
 
-        return LLVMBuildOr(builder, lhs, rhs, "tmp_");
+        LLVMValueRef orResult = LLVMBuildOr(builder, lhs, rhs, "tmp_");
+        return LLVMBuildICmp(builder, LLVMIntNE, LLVMConstInt(LLVMInt32Type(), 0, 0), orResult, "tmp_");
     }
 
     @Override

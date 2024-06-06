@@ -49,7 +49,7 @@ stmt : lVal ASSIGN exp SEMICOLON                    # AssignStmt
      | WHILE L_PAREN cond R_PAREN stmt              # WhileStmt
      | BREAK SEMICOLON                              # BreakStmt
      | CONTINUE SEMICOLON                           # ContinueStmt
-     | RETURN exp? SEMICOLON                        # RuturnStmt
+     | RETURN (exp | cond)? SEMICOLON               # RuturnStmt
      ;
 
 exp : IDENT L_PAREN funcRParams? R_PAREN    # FuncCallExp
