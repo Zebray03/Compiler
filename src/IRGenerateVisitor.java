@@ -255,8 +255,8 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
     @Override
     public LLVMValueRef visitIfStmt(SysYParser.IfStmtContext ctx) {
         LLVMValueRef condition = visit(ctx.cond());
-        LLVMBasicBlockRef ifTrueBlock = LLVMAppendBasicBlock(currentFunction, "true");
-        LLVMBasicBlockRef ifFalseBlock = LLVMAppendBasicBlock(currentFunction, "false");
+        LLVMBasicBlockRef ifTrueBlock = LLVMAppendBasicBlock(currentFunction, "ifConditionIsTrue");
+        LLVMBasicBlockRef ifFalseBlock = LLVMAppendBasicBlock(currentFunction, "ifConditionIsFalse");
         LLVMBasicBlockRef nextBlock = LLVMAppendBasicBlock(currentFunction, "entry");
         LLVMBuildCondBr(builder, condition, ifTrueBlock, ifFalseBlock);
 
@@ -391,6 +391,71 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
 
     @Override
     public LLVMValueRef visitAndCond(SysYParser.AndCondContext ctx) {
-        return super.visitAndCond(ctx);
+        LLVMValueRef lhs = visit(ctx.cond(0));
+        LLVMBasicBlockRef lhsIsTrueBlock = LLVMAppendBasicBlock(currentFunction, "lhsIsTrue");
+        LLVMBasicBlockRef lhsIsFalseBlock = LLVMAppendBasicBlock(currentFunction, "lhsIsFalse");
+        LLVMBasicBlockRef nextBlock = LLVMAppendBasicBlock(currentFunction, "entry");
+
+        LLVMBuildCondBr(builder, lhs, lhsIsTrueBlock, lhsIsFalseBlock);
+
+        // lhsIsTrue
+        LLVMPositionBuilderAtEnd(builder, lhsIsTrueBlock);
+        blockStack.push(lhsIsTrueBlock);
+        LLVMValueRef rhs = visit(ctx.cond(1));
+        LLVMBuildBr(builder, nextBlock);
+        blockStack.pop();
+
+        // lhsIsFalse
+        // Skip rhs if lhs is false
+        LLVMPositionBuilderAtEnd(builder, lhsIsFalseBlock);
+        LLVMBuildBr(builder, nextBlock);
+
+        // nextBlock
+        LLVMPositionBuilderAtEnd(builder, nextBlock);
+        // nextBlock as the alternative of origin block
+        blockStack.pop();
+        blockStack.push(nextBlock);
+
+        return LLVMBuildAnd(builder, lhs, rhs, "tmp_");
+    }
+
+    @Override
+    public LLVMValueRef visitOrCond(SysYParser.OrCondContext ctx) {
+        LLVMValueRef lhs = visit(ctx.cond(0));
+        LLVMBasicBlockRef lhsIsTrueBlock = LLVMAppendBasicBlock(currentFunction, "lhsIsTrue");
+        LLVMBasicBlockRef lhsIsFalseBlock = LLVMAppendBasicBlock(currentFunction, "lhsIsFalse");
+        LLVMBasicBlockRef nextBlock = LLVMAppendBasicBlock(currentFunction, "entry");
+
+        LLVMBuildCondBr(builder, lhs, lhsIsTrueBlock, lhsIsFalseBlock);
+
+        // lhsIsTrue
+        // Skip rhs if lhs is true
+        LLVMPositionBuilderAtEnd(builder, lhsIsTrueBlock);
+        LLVMBuildBr(builder, nextBlock);
+
+        // lhsIsFalse
+        LLVMPositionBuilderAtEnd(builder, lhsIsFalseBlock);
+        blockStack.push(lhsIsFalseBlock);
+        LLVMValueRef rhs = visit(ctx.cond(1));
+        LLVMBuildBr(builder, nextBlock);
+        blockStack.pop();
+
+        // nextBlock
+        LLVMPositionBuilderAtEnd(builder, nextBlock);
+        // nextBlock as the alternative of origin block
+        blockStack.pop();
+        blockStack.push(nextBlock);
+
+        return LLVMBuildOr(builder, lhs, rhs, "tmp_");
+    }
+
+    @Override
+    public LLVMValueRef visitTrueCond(SysYParser.TrueCondContext ctx) {
+        return LLVMConstInt(LLVMInt1Type(), 1, 0);
+    }
+
+    @Override
+    public LLVMValueRef visitFalseCond(SysYParser.FalseCondContext ctx) {
+        return LLVMConstInt(LLVMInt1Type(), 0, 0);
     }
 }
