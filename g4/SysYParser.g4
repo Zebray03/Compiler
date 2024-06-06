@@ -53,10 +53,10 @@ stmt : lVal ASSIGN exp SEMICOLON                    # AssignStmt
      ;
 
 exp : IDENT L_PAREN funcRParams? R_PAREN    # FuncCallExp
-    | unaryOp exp                           # UnaryOpExp
+    | L_PAREN exp R_PAREN                   # CombineExp
     | exp (MUL | DIV | MOD) exp             # UpperCalExp
     | exp (PLUS | MINUS) exp                # LowerCalExp
-    | L_PAREN exp R_PAREN                   # CombineExp
+    | unaryOp exp                           # UnaryOpExp
     | lVal                                  # LValExp
     | number                                # IntExp
     ;

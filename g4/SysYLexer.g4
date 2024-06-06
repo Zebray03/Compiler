@@ -70,7 +70,7 @@ SEMICOLON : ';' ;
 
 IDENT : ('_' | [a-zA-Z]) ('_' | [a-zA-Z0-9])* ;
 
-DECIMAL_INTEGER : '0' | ('+' | '-')? [1-9][0-9]* ;
+DECIMAL_INTEGER : '0' | [1-9][0-9]* ;
 
 OCTAL_INTEGER : '0' [0-7]* ;
 

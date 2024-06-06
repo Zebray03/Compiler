@@ -13,6 +13,7 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
     Scope currentScope;
     LLVMValueRef currentFunction;
     Stack<LLVMBasicBlockRef> blockStack;
+    Stack<Loop> loopStack;
 
     @Override
     public LLVMValueRef visitProgram(SysYParser.ProgramContext ctx) {
@@ -21,6 +22,7 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
         globalScope = new GlobalScope(null);
         this.currentScope = globalScope;
         blockStack = new Stack<>();
+        loopStack = new Stack<>();
         return super.visitProgram(ctx);
     }
 
@@ -287,6 +289,9 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
         LLVMBasicBlockRef conditionBlock = LLVMAppendBasicBlock(currentFunction, "whileCondition");
         LLVMBasicBlockRef bodyBlock = LLVMAppendBasicBlock(currentFunction, "whileBody");
         LLVMBasicBlockRef nextBlock = LLVMAppendBasicBlock(currentFunction, "entry");
+        Loop loop = new Loop(conditionBlock, bodyBlock, nextBlock);
+        loopStack.push(loop);
+        LLVMBuildBr(builder, conditionBlock);
 
         // conditionBlock
         LLVMPositionBuilderAtEnd(builder, conditionBlock);
@@ -300,27 +305,27 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
         blockStack.push(bodyBlock);
         visit(ctx.stmt());
         blockStack.pop();
-        condition = visit(ctx.cond());
-        LLVMBuildCondBr(builder, condition, bodyBlock, nextBlock);
+        LLVMBuildBr(builder, conditionBlock);
 
         // nextBlock
         LLVMPositionBuilderAtEnd(builder, nextBlock);
         // nextBlock as the alternative of origin block
         blockStack.pop();
         blockStack.push(nextBlock);
+        loopStack.pop();
         return null;
     }
 
     @Override
     public LLVMValueRef visitBreakStmt(SysYParser.BreakStmtContext ctx) {
-
-        return super.visitBreakStmt(ctx);
+        LLVMBuildBr(builder, loopStack.peek().getNextBlock());
+        return null;
     }
 
     @Override
     public LLVMValueRef visitContinueStmt(SysYParser.ContinueStmtContext ctx) {
-
-        return super.visitContinueStmt(ctx);
+        LLVMBuildBr(builder, loopStack.peek().getConditionBlock());
+        return null;
     }
 
     // Condition Expression
@@ -384,5 +389,8 @@ public class IRGenerateVisitor extends SysYParserBaseVisitor<LLVMValueRef> {
         return tmp;
     }
 
-
+    @Override
+    public LLVMValueRef visitAndCond(SysYParser.AndCondContext ctx) {
+        return super.visitAndCond(ctx);
+    }
 }

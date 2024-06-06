@@ -33,6 +33,8 @@ bin/
 ### Antlr 4 ###
 /gen
 /pkg
+/src/SysY*.java
+/test
 
 ### LLVM ###
 /*.log
